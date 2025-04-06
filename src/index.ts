@@ -119,6 +119,7 @@ app.get('/api/users', async (req: Request, res: Response) => {
 app.post("/api/users", async (req: Request, res: Response) => {
   try {
     const { id, username, userImage } = req.body;
+
     const user = new User({ id, username, userImage, followers: [], likes: [] });
     await user.save();
     res.send(user);
@@ -143,14 +144,10 @@ app.get("/api/users/:userId", async (req: Request, res: Response) => {
 
     let likesCount = 0;
     threads.forEach((thread) => {
-      if (thread.likedUsers.includes(req.params.userId)) {
-        likesCount++;
-      }
+      likesCount += thread.likedUsers.length;
     });
     replies.forEach((reply) => {
-      if (reply.likedUsers.includes(req.params.userId)) {
-        likesCount++;
-      }
+      likesCount += reply.likedUsers.length;
     });
 
     res.send({
@@ -195,9 +192,17 @@ app.post("/api/users/follow/:userId", async (req: Request, res: Response) => {
 
 app.post("/api/users/unfollow/:userId", async (req: Request, res: Response) => {
   try {
-    const user = await User.findById(req.params.userId);
+    const user = await User.findOne({ id: req.params.userId });
     if (!user) {
       return res.status(404).send({ message: "User not found" });
+    }
+    //throw error if followerId is not provided
+    if (!req.body.followerId) {
+      return res.status(400).send({ message: "Follower ID is required" });
+    }
+    // throw error if not following
+    if (!user.followers.includes(req.body.followerId)) {
+      return res.status(400).send({ message: "Not following this user" });
     }
     user.followers = user.followers.filter((followerId) => followerId !== req.body.followerId);
     await user.save();
@@ -211,6 +216,10 @@ app.post("/api/users/unfollow/:userId", async (req: Request, res: Response) => {
 // Thread routes
 app.post("/api/threads", async (req: Request, res: Response) => {
   try {
+    //Validate request body
+    if (!req.body.id || !req.body.userId || !req.body.content) {
+      return res.status(400).send({ message: "Thread ID, user ID, and content are required" });
+    }
     const thread = new Thread(req.body);
     await thread.save();
     res.send(thread);
@@ -221,18 +230,106 @@ app.post("/api/threads", async (req: Request, res: Response) => {
 });
 
 
-app.get("/api/threads/:fromTime/:toTime", async (req: Request, res: Response) => {
+app.get("/api/threads/:includeReplies", async (req: Request, res: Response) => {
   try {
-    const { fromTime, toTime } = req.params;
-    const threads = await Thread.find({
-      createdAt: {
-        $gte: new Date(parseInt(fromTime)),
-        $lte: new Date(parseInt(toTime)),
-      },
-    }).sort({ createdAt: -1 });
-    res.send(threads);
+
+    const threads = await Thread.find().sort({ createdAt: -1 });
+    let fullThreasd = [];
+    const { includeReplies } = req.params;
+    if (includeReplies === "true") {
+      for (const thread of threads) {
+        const replies = await Reply.find({ threadId: thread.id }).sort({ time: -1 });
+        fullThreasd.push({
+          ...thread.toObject(),
+          replies: replies.map((reply) => ({
+            ...reply.toObject(),
+            threadId: thread.id,
+          })),
+        });
+      }
+    }
+    res.send(includeReplies === "true" ? fullThreasd : threads);
   } catch (error) {
     console.error("Error fetching threads:", error);
+    res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.post("/api/threads/like/:threadId", async (req: Request, res: Response) => {
+  try {
+    const thread = await Thread.findOne({ id: req.params.threadId });
+    if (!thread) {
+      return res.status(404).send({ message: "Thread not found" });
+    }
+    //throw error if userId is not provided
+    if (!req.body.userId) {
+      return res.status(400).send({ message: "User ID is required" });
+    }
+    // throw error if already liked
+    if (thread.likedUsers.includes(req.body.userId)) {
+      return res.status(400).send({ message: "Already liked this thread" });
+    }
+    thread.likedUsers.push(req.body.userId);
+    await thread.save();
+    res.send(thread);
+  }
+  catch (error) {
+    console.error("Error liking thread:", error);
+    res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+
+app.post("/api/replies", async (req: Request, res: Response) => {
+  try {
+    //Validate request body
+    if (!req.body.id || !req.body.userId || !req.body.content || !req.body.threadId) {
+      return res.status(400).send({ message: "Reply ID, user ID, content, and thread ID are required" });
+    }
+    const reply = new Reply(req.body);
+    await reply.save();
+    res.send(reply);
+  }
+  catch (error) {
+    console.error("Error creating reply:", error);
+    res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.get("/api/replies/:threadId", async (req: Request, res: Response) => {
+  try {
+    const { threadId } = req.params;
+    //throw error if threadId is not provided
+    if (!threadId) {
+      return res.status(400).send({ message: "Thread ID is required" });
+    }
+    const replies = await Reply.find({ threadId }).sort({ time: -1 });
+    res.send(replies);
+  } catch (error) {
+    console.error("Error fetching replies:", error);
+    res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.post("/api/replies/like/:replyId", async (req: Request, res: Response) => {
+  try {
+    const reply = await Reply.findOne({ id: req.params.replyId });
+    if (!reply) {
+      return res.status(404).send({ message: "Reply not found" });
+    }
+    //throw error if userId is not provided
+    if (!req.body.userId) {
+      return res.status(400).send({ message: "User ID is required" });
+    }
+    // throw error if already liked
+    if (reply.likedUsers.includes(req.body.userId)) {
+      return res.status(400).send({ message: "Already liked this reply" });
+    }
+    reply.likedUsers.push(req.body.userId);
+    await reply.save();
+    res.send(reply);
+  } catch (error) {
+    console.error("Error liking reply:", error);
     res.status(500).send({ message: "Internal server error" });
   }
 });
