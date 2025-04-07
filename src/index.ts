@@ -15,9 +15,17 @@ app.use(cors(
     methods: ["GET", "POST", "PUT", "DELETE"],
     //allow any headers
     allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
   }
 ));
 app.use(express.json());
+
+app.use((req: Request, res: Response, next: () => void) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  next();
+})
 
 // MongoDB connection
 mongoose
