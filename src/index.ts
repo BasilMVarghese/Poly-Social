@@ -2,11 +2,16 @@ import express, { Request, Response } from "express";
 import mongoose, { Types } from "mongoose";
 import { createServer } from "http";
 import { Server, Socket } from "socket.io";
+import https from 'https';
 import cors from "cors";
+import fs from 'fs';
 
 // Initialize app and server
 const app = express();
-const server = createServer(app);
+const server = https.createServer({
+  key: fs.readFileSync('../../server.key'),
+  cert: fs.readFileSync('../../server.cert')
+}, app)
 const io = new Server(server, { cors: { origin: "*" } });
 // Middleware
 app.use(cors(
