@@ -9,8 +9,8 @@ import fs from 'fs';
 // Initialize app and server
 const app = express();
 const server = https.createServer({
-  key: fs.readFileSync('../../server.key'),
-  cert: fs.readFileSync('../../server.cert')
+  key: fs.readFileSync('../server.key'),
+  cert: fs.readFileSync('../server.cert')
 }, app)
 const io = new Server(server, { cors: { origin: "*" } });
 // Middleware
