@@ -9,15 +9,7 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 // Middleware
-app.use(cors(
-  {
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    //allow any headers
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  }
-));
+app.use(cors());
 app.use(express.json());
 
 // MongoDB connection
@@ -93,6 +85,9 @@ const threadSchema = new mongoose.Schema<IThread>({
 const Thread = mongoose.model<IThread>("threads", threadSchema);
 
 
+app.get('/health', (req: Request, res: Response) => {
+  res.send({ message: "Server is healthy" });
+});
 
 app.get('/api/users/basic/:userId', async (req: Request, res: Response) => {
   try {
