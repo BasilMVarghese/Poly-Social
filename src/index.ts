@@ -3,6 +3,7 @@ import mongoose, { Types } from "mongoose";
 import { createServer } from "http";
 import { Server, Socket } from "socket.io";
 import cors from "cors";
+import Pusher from 'pusher'
 
 // Initialize app and server
 const app = express();
@@ -11,6 +12,14 @@ const io = new Server(server, { cors: { origin: "*" } });
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+const pusher = new Pusher({
+  appId: "1970757",
+  key: "47a8c0b9875e46f41332",
+  secret: "127eea309bca6190bcff",
+  cluster: "ap2",
+  useTLS: true
+});
 
 // MongoDB connection
 mongoose
@@ -238,6 +247,13 @@ app.post("/api/threads", async (req: Request, res: Response) => {
     }
     const thread = new Thread(req.body);
     await thread.save();
+    pusher.trigger('main-threads', 'new-thread', {
+      id: thread.id,
+      userId: thread.userId,
+      content: thread.content,
+      createdAt: thread.createdAt,
+      likedUsers: thread.likedUsers,
+    })
     res.send(thread);
   } catch (error) {
     console.error("Error creating thread:", error);
