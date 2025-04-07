@@ -2,16 +2,11 @@ import express, { Request, Response } from "express";
 import mongoose, { Types } from "mongoose";
 import { createServer } from "http";
 import { Server, Socket } from "socket.io";
-import https from 'https';
 import cors from "cors";
-import fs from 'fs';
 
 // Initialize app and server
 const app = express();
-const server = https.createServer({
-  key: fs.readFileSync('../server.key'),
-  cert: fs.readFileSync('../server.cert')
-}, app)
+const server = createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 // Middleware
 app.use(cors(
@@ -24,13 +19,6 @@ app.use(cors(
   }
 ));
 app.use(express.json());
-
-app.use((req: Request, res: Response, next: () => void) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  next();
-})
 
 // MongoDB connection
 mongoose
