@@ -1,14 +1,13 @@
 import express, { Request, Response } from "express";
 import mongoose, { Types } from "mongoose";
 import { createServer } from "http";
-import { Server } from "socket.io";
+import { Server, Socket } from "socket.io";
 import cors from "cors";
 
 // Initialize app and server
 const app = express();
 const server = createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
-
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -135,12 +134,26 @@ app.get("/api/users/:userId", async (req: Request, res: Response) => {
     const user = await User.findOne({ id: req.params.userId });
 
     if (!user) {
-      return res.status(404).send({ message: "User not found" });
+      return res.status(501).send({ message: "User not found" });
     }
 
     // Get all threads and replies for the user
     const threads = await Thread.find({ userId: req.params.userId });
     const replies = await Reply.find({ userId: req.params.userId });
+
+    let followersFull = await Promise.all(user.followers.map(async (followerId) => {
+      const follower = await User.findOne({ id: followerId });
+      if (follower) {
+        return {
+          id: follower.id,
+          username: follower.username,
+          userImage: follower.userImage,
+          followers: follower.followers,
+        };
+      }
+      return null;
+    }));
+
 
     let likesCount = 0;
     threads.forEach((thread) => {
@@ -154,7 +167,7 @@ app.get("/api/users/:userId", async (req: Request, res: Response) => {
       id: user.id,
       username: user.username,
       userImage: user.userImage,
-      followers: user.followers,
+      followers: followersFull,
       likes: user.likes,
       likesCount,
       threads,
@@ -230,25 +243,34 @@ app.post("/api/threads", async (req: Request, res: Response) => {
 });
 
 
-app.get("/api/threads/:includeReplies", async (req: Request, res: Response) => {
+app.get("/api/threads/:includAllDetails", async (req: Request, res: Response) => {
   try {
 
-    const threads = await Thread.find().sort({ createdAt: -1 });
+    const threads = await Thread.find().sort({ createdAt: 1 });
     let fullThreasd = [];
-    const { includeReplies } = req.params;
-    if (includeReplies === "true") {
+    const { includAllDetails } = req.params;
+    if (includAllDetails === "true") {
       for (const thread of threads) {
-        const replies = await Reply.find({ threadId: thread.id }).sort({ time: -1 });
+        const replies = await Reply.find({ threadId: thread.id }).sort({ time: 1 });
+        const user = await User.findOne({ id: thread.userId })
         fullThreasd.push({
           ...thread.toObject(),
           replies: replies.map((reply) => ({
             ...reply.toObject(),
             threadId: thread.id,
           })),
+          user: {
+            id: user?.id,
+            username: user?.username,
+            userImage: user?.userImage,
+            followers: user?.followers,
+          },
         });
+        ;
+
       }
     }
-    res.send(includeReplies === "true" ? fullThreasd : threads);
+    res.send(includAllDetails === "true" ? fullThreasd : threads);
   } catch (error) {
     console.error("Error fetching threads:", error);
     res.status(500).send({ message: "Internal server error" });
@@ -275,6 +297,30 @@ app.post("/api/threads/like/:threadId", async (req: Request, res: Response) => {
   }
   catch (error) {
     console.error("Error liking thread:", error);
+    res.status(500).send({ message: "Internal server error" });
+  }
+});
+
+app.post("/api/threads/unlike/:threadId", async (req: Request, res: Response) => {
+  try {
+    const thread = await Thread.findOne({ id: req.params.threadId });
+    if (!thread) {
+      return res.status(404).send({ message: "Thread not found" });
+    }
+    //throw error if userId is not provided
+    if (!req.body.userId) {
+      return res.status(400).send({ message: "User ID is required" });
+    }
+    // throw error if not liked
+    if (!thread.likedUsers.includes(req.body.userId)) {
+      return res.status(400).send({ message: "Not liked this thread" });
+    }
+    thread.likedUsers = thread.likedUsers.filter((userId) => userId !== req.body.userId);
+    await thread.save();
+    res.send(thread);
+  }
+  catch (error) {
+    console.error("Error unliking thread:", error);
     res.status(500).send({ message: "Internal server error" });
   }
 });
@@ -334,6 +380,51 @@ app.post("/api/replies/like/:replyId", async (req: Request, res: Response) => {
   }
 });
 
+
+app.post("/api/replies/unlike/:replyId", async (req: Request, res: Response) => {
+  try {
+    const reply = await Reply.findOne({ id: req.params.replyId });
+    if (!reply) {
+      return res.status(404).send({ message: "Reply not found" });
+    }
+    //throw error if userId is not provided
+    if (!req.body.userId) {
+      return res.status(400).send({ message: "User ID is required" });
+    }
+    // throw error if not liked
+    if (!reply.likedUsers.includes(req.body.userId)) {
+      return res.status(400).send({ message: "Not liked this reply" });
+    }
+    reply.likedUsers = reply.likedUsers.filter((userId) => userId !== req.body.userId);
+    await reply.save();
+    res.send(reply);
+  } catch (error) {
+    console.error("Error unliking reply:", error);
+    res.status(500).send({ message: "Internal server error" });
+  }
+});
+
 // Start server
 const PORT = 4000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+
+  socket.on('createThread', async (msg: { userId: string; content: string }) => {
+    const thread = new Thread({ id: new Types.ObjectId().toString(), ...msg });
+    await thread.save();
+
+    socket.broadcast.emit('threadCreated', thread);
+  });
+
+  socket.on('createReply', async (msg: { userId: string; content: string; threadId: string }) => {
+    const reply = new Reply({ id: new Types.ObjectId().toString(), ...msg });
+    await reply.save();
+    socket.broadcast.emit('replyCreated', reply);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+  });
+});
